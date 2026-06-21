@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 계좌 유형: PENSION_SAVINGS(연금저축) | IRP | ISA | GENERAL(일반계좌)
+model Account {
+  id        String   @id @default(cuid())
+  type      String
+  name      String
+  createdAt DateTime @default(now())
+
+  deposits  Deposit[]
+  holdings  Holding[]
+  snapshots SnapshotMonthly[]
+}
+
+// 입금(납입) 로그 - 원금 추적의 기준
+model Deposit {
+  id          String   @id @default(cuid())
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  date        DateTime
+  amount      Int
+  // SELF(본인납입) | SEVERANCE_TRANSFER(퇴직금이전, IRP 전용) | ISA_CONVERSION(ISA 만기 전환)
+  sourceType  String   @default("SELF")
+  // 세액공제를 받은 납입분인지 (연금저축/IRP 인출 세금 계산에 필요)
+  taxCredited Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([accountId, date])
+}
+
+// 보유 종목 - 7분법 자산군과 위험자산 여부 태깅
+model Holding {
+  id         String   @id @default(cuid())
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id])
+  ticker     String
+  name       String
+  // 국내주식 | 해외주식 | 채권 | 배당주 | 리츠 | 금 | 달러
+  assetClass String
+  // IRP 위험자산 70% 룰 판정용: RISK | SAFE
+  riskType   String   @default("RISK")
+  quantity   Float    @default(0)
+  avgCost    Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([accountId, ticker])
+}
+
+// 월말 스냅샷 - Vercel Cron이 매월 말 자동 기록 (지금 엑셀의 1/30, 12/30... 구조를 대체)
+model SnapshotMonthly {
+  id            String   @id @default(cuid())
+  accountId     String
+  account       Account  @relation(fields: [accountId], references: [id])
+  date          DateTime
+  balance       Int
+  cumulativePrincipal Int
+  createdAt     DateTime @default(now())
+
+  @@unique([accountId, date])
+}
